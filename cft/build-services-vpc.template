@@ -827,7 +827,7 @@
                 "InstanceId" : { "Ref" : "VPCBastionInstance" }
             },
             "DependsOn" : "VPCBastionInstance"
-        },
+        }
     },
     "Outputs" : {
         "BastionIP"                  : {

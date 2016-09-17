@@ -1,0 +1,44 @@
+##############################################################
+# Please specify AWS auth info on the command line for Boto:
+#
+# export AWS_ACCESS_KEY_ID=
+# export AWS_SECRET_ACCESS_KEY=
+# export AWS_DEFAULT_REGION=
+#
+# Execute with:
+#   ansible-playbook ansible-provision.yml -e "@aws-params.json" -e "stack_name=otd-test-15" -e "env_type=dev" -e "tag_env=DEV-01"
+# where
+#   '@aws-params.json' is pointing to the parameter file. There is a default in the repo to be used as example.
+#   'stack_name' is the value for the 'aws::cloudformation::stack_name' tag
+#   'env_type' is the value for the various possible environment mappings [dev, uat, sand, prod]
+#   'environment' the value for the 'Environment' tag. Should be unique accross the VPCs for better grouping in billing, logs, etc
+#
+# Expect long running time as the stack takes about 20-25 minutes to complete
+##############################################################
+---
+- hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Upload templates into S3
+      s3: bucket={{ par_s3_template_bucket }} mode=put object={{ item }} src=v1.0/{{ item }}
+      with_items:
+        - "drupal-env.template"
+
+    - name: Create the OTD VPC from scratch
+      cloudformation:
+        stack_name: "{{ stack_name }}"
+        state: "present"
+        region: "{{ par_aws_region }}"
+        disable_rollback: false
+        template_url: "https://s3-{{ par_aws_region }}.amazonaws.com/{{ par_s3_template_bucket }}/drupal-env.template"
+        template_parameters:
+          ParBuildID: "{{ par_build_id }}"
+          ParVPCID: "{{ par_vpc_id }}"
+          ParSubnetID: "{{ par_subnet_id }}"
+          ParSGID: "{{ par_secgrp_id }}"
+          ZDidYouCheckAllValues: "Yes"
+        tags:
+          created_by: "{{ lookup('env', 'USER') }}"
+          created_on: "{{ lookup('pipe', 'date \"+%Y-%m-%d %H:%M:%S\"') }}"

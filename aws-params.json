@@ -1,0 +1,5 @@
+{
+    "par_vpc_id" : "vpc-0d322e64",
+    "par_subnet_id" : "subnet-15a2456f",
+    "par_secgrp_id" : "sg-5d42de35"
+}

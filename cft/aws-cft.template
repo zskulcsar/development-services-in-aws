@@ -1,0 +1,913 @@
+{
+    "AWSTemplateFormatVersion" : "2010-09-09",
+    "Description"              : "AWS template for build services vpc. In this version the NAT instance is the Bastion as well",
+    "Parameters"               : {
+        "ParDNSHostedZoneId"            : {
+            "Description"   : "The id for the hosted zone where the services will be exposed. No sensible default can be given.",
+            "Type"          : "String"
+        },
+        "ParEnvironmentGroup"           : {
+            "Description"   : "The environment group managed by this set of servers. Used for tagging. Defaults to 'dev'",
+            "Type"          : "String",
+            "Default"       : "dev"
+        },
+        "ParRestrictedNetworkEgress"    : {
+            "Description"   : "The egress IP for the network you're coming from. No sensisble default can be given.",
+            "Type"          : "String",
+            "ConstraintDescription" : "Must have a value!"
+        },
+        "ParAnsibleSSHAccessKey"        : {
+            "Description" : "SSH key for the Ansible server. This have to be created first in AWS.",
+            "Type"        : "AWS::EC2::KeyPair::KeyName"
+        },
+        "ParBastionSSHAccessKey"        : {
+            "Description" : "The SSH key used for the bastion host box. This have to be created first in AWS.",
+            "Type"        : "AWS::EC2::KeyPair::KeyName"
+        },
+        "ParAMIToolbox"                 : {
+            "Description" : "AMI for all kind of servers. The (hardened) base golden image you'de like to use.",
+            "Type"        : "AWS::EC2::Image::Id",
+            "Default"     : "ami-e1398992"
+        },
+        "ParAMIBastionInstance"      : {
+            "Description" : "AMI-ID of the NAT image Amazon Linux AMI in Ireland as of 16-09-2016",
+            "Type"        : "AWS::EC2::Image::Id",
+            "Default"     : "ami-6975eb1e"
+        },
+        "ParBastionInstanceType"     : {
+            "Description" : "The instance type to be used by the NAT / Bastion.",
+            "Type"        : "String",
+            "Default"     : "t2.micro"
+        },
+        "ParJenkinsInstanceType"        : {
+            "Description" : "The instance type to be used by the Jenkins server. Slaves will be managed by Jenkins plugins.",
+            "Type"        : "String",
+            "Default"     : "t2.small"
+        },
+        "ParNexusInstanceType"          : {
+            "Description" : "The instance type to be used by Nexus. Storage is the limiting factor.",
+            "Type"        : "String",
+            "Default"     : "t2.small"
+        },
+        "ParConfigServerInstanceType"   : {
+            "Description" : "The instance type to be used by Config server (etcd / zookeeper / consul)",
+            "Type"        : "String",
+            "Default"     : "t2.small"
+        },
+        "ParMySQLRDSInstanceType"       : {
+            "Description" : "The MySQL server used with Nexus. Will be created via RDS.",
+            "Type"        : "String",
+            "Default"     : "db.t2.small"
+        },
+        "ParALBLogBucket"               : {
+            "Description" : "The name of the bucket where the ALB logs will be stored. See configuration here http://docs.aws.amazon.com/elasticloadbalancing/latest/classic/enable-access-logs.html",
+            "Type"        : "String"
+        },
+        "ParS3BoostrapBucket"               : {
+            "Description" : "The name of the bucket where the instance boostrap can be found. Needs to be created first.",
+            "Type"        : "String"
+        },
+        "ParMySQLAdminPassword"         : {
+            "Description" : "MySQL admin password",
+            "Type"        : "String"
+        },
+        "ParVPCCIDR"                    : {
+            "Description" : "The CidrBlock for the VPC",
+            "Type"        : "String",
+            "Default"     : "192.168.0.0/20"
+        },
+        "ParSNPublicCIDR"               : {
+            "Description" : "The CidrBlock for the public subnet.",
+            "Type"        : "String",
+            "Default"     : "192.168.8.0/24"
+        },
+        "ParSNPrivateCIDR"              : {
+            "Description" : "The CidrBlock for the private subnet.",
+            "Type"        : "String",
+            "Default"     : "192.168.0.0/21"
+        },
+        "ParSNRDS1CIDR"                 : {
+            "Description" : "The first CidrBlock for the RDS subnet (we need two because of RDS).",
+            "Type"        : "String",
+            "Default"     : "192.168.9.0/25"
+        },
+        "ParSNRDS2CIDR"                 : {
+            "Description" : "The second CidrBlock for the RDS subnet (we need two because of RDS).",
+            "Type"        : "String",
+            "Default"     : "192.168.9.128/25"
+        },
+        "ParPublicAccessCIDR"           : {
+            "Description" : "The CidrBlock from where we allow access to the services.",
+            "Type"        : "String",
+            "Default"     : "0.0.0.0/0"
+        },
+        "ParVPCAvailabilityZone"        : {
+            "Description" : "The availability zone for the VPC",
+            "Type"        : "String",
+            "Default"     : "eu-west-1c"
+        },
+        "ZDidYouCheckAllValues"         : {
+            "Description" : "Did you really check all the above values?!",
+            "Type"        : "String",
+            "AllowedValues" : [
+                "Yes"
+            ],
+            "ConstraintDescription" : "Must select!"
+        }
+    },
+    "Mappings" : {
+        "MapRDS2AZ" : {
+            "eu-west-1a"     : { "AZRDS2" : "eu-west-1b"},
+            "eu-west-1b"     : { "AZRDS2" : "eu-west-1c"},
+            "eu-west-1c"     : { "AZRDS2" : "eu-west-1a"}
+        }
+    },
+    "Resources" : {
+        "BuildServicesVPC"          : {
+            "Type"       : "AWS::EC2::VPC",
+            "Properties" : {
+                "CidrBlock" : { "Ref" : "ParVPCCIDR" },
+                "Tags"      : [
+                    {
+                        "Key"   : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "build-services-vpc" ] ] }
+                    }
+                ],
+                "EnableDnsHostnames"    : "true",
+                "EnableDnsSupport"      : "true"
+            }
+        },
+
+        "VPCInternetGateway"        : {
+            "Type"       : "AWS::EC2::InternetGateway",
+            "Properties" : {
+                "Tags" : [
+                    {
+                        "Key"   : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-igw" ] ] }
+                    }
+                ]
+            }
+        },
+        "VPCGatewayAttachment"      : {
+            "Type"       : "AWS::EC2::VPCGatewayAttachment",
+            "Properties" : {
+                "VpcId" : { "Ref" : "BuildServicesVPC" },
+                "InternetGatewayId" : { "Ref" : "VPCInternetGateway" }
+            }
+        },
+
+        "EIPBastion"                : {
+            "Type"       : "AWS::EC2::EIP",
+            "DependsOn"  : "VPCGatewayAttachment",
+            "Properties" : { "Domain" : "vpc" }
+        },
+        "EIPNatGW"                  : {
+            "Type"       : "AWS::EC2::EIP",
+            "DependsOn"  : "VPCGatewayAttachment",
+            "Properties" : { "Domain" : "vpc" }
+        },
+
+        "VPCNatGW"                  : {
+            "Type" : "AWS::EC2::NatGateway",
+            "Properties" : {
+                "AllocationId" : { "Fn::GetAtt" : [ "EIPNatGW", "AllocationId" ] },
+                "SubnetId" : { "Ref" : "SnBuildServicesPublic" }
+            }
+        },
+
+        "SnBuildServicesPublic"     : {
+            "Type"       : "AWS::EC2::Subnet",
+            "Properties" : {
+                "VpcId"            : { "Ref" : "BuildServicesVPC" },
+                "Tags"             : [
+                    {
+                        "Key"   : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-public-sn" ] ] }
+                    }
+                ],
+                "CidrBlock"        : { "Ref" : "ParSNPublicCIDR" },
+                "AvailabilityZone" : { "Ref" : "ParVPCAvailabilityZone" }
+            }
+        },
+        "SnBuildServicesPrivate"    : {
+            "Type"       : "AWS::EC2::Subnet",
+            "Metadata"   : {
+                "Tier"       : "APP",
+                "Visibility" : "Internal"
+            },
+            "Properties" : {
+                "VpcId"            : { "Ref" : "BuildServicesVPC" },
+                "Tags"             : [
+                    {
+                        "Key"   : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-private-sn" ] ] }
+                    }
+                ],
+                "CidrBlock"        : { "Ref" : "ParSNPrivateCIDR" },
+                "AvailabilityZone" : { "Ref" : "ParVPCAvailabilityZone" }
+            }
+        },
+        "SnRDSPrivate1"             : {
+            "Type"       : "AWS::EC2::Subnet",
+            "Properties" : {
+                "VpcId"            : { "Ref" : "BuildServicesVPC" },
+                "Tags"             : [
+                    {
+                        "Key"   : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-rds-1-sn" ] ] }
+                    }
+                ],
+                "CidrBlock"        : { "Ref" : "ParSNRDS1CIDR" },
+                "AvailabilityZone" : { "Ref" : "ParVPCAvailabilityZone" }
+            }
+        },
+        "SnRDSPrivate2"             : {
+            "Type"       : "AWS::EC2::Subnet",
+            "Metadata"   : {
+                "Tier"       : "DB",
+                "Visibility" : "Internal"
+            },
+            "Properties" : {
+                "VpcId"            : { "Ref" : "BuildServicesVPC" },
+                "Tags"             : [
+                    {
+                        "Key"   : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-rds-2-sn" ] ] }
+                    }
+                ],
+                "CidrBlock"        : { "Ref" : "ParSNRDS2CIDR" },
+                "AvailabilityZone" : { "Fn::FindInMap" : [ "MapRDS2AZ", { "Ref" : "ParVPCAvailabilityZone" }, "AZRDS2" ] }
+            }
+        },
+
+        "PublicRouteTable"          : {
+            "Type"       : "AWS::EC2::RouteTable",
+            "Properties" : {
+                "VpcId" : { "Ref" : "BuildServicesVPC" },
+                "Tags"  : [
+                    {
+                        "Key"   : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-public-rt" ] ] }
+                    }
+                ]
+            }
+        },
+        "PrivateRouteTable"         : {
+            "Type"       : "AWS::EC2::RouteTable",
+            "Properties" : {
+                "VpcId" : { "Ref" : "BuildServicesVPC" },
+                "Tags"  : [
+                    {
+                        "Key"   : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-private-rt" ] ] }
+                    }
+                ]
+            }
+        },
+        "PubSnPubRtAssoc"           : {
+            "Type"       : "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties" : {
+                "SubnetId"     : { "Ref" : "SnBuildServicesPublic" },
+                "RouteTableId" : { "Ref" : "PublicRouteTable" }
+            }
+        },
+        "PrvSnPrvRtAssoc"           : {
+            "Type"       : "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties" : {
+                "SubnetId"     : { "Ref" : "SnBuildServicesPrivate" },
+                "RouteTableId" : { "Ref" : "PrivateRouteTable" }
+            }
+        },
+        "PublicRoute"               : {
+            "Type"       : "AWS::EC2::Route",
+            "DependsOn"  : "VPCGatewayAttachment",
+            "Properties" : {
+                "RouteTableId"         : { "Ref" : "PublicRouteTable" },
+                "DestinationCidrBlock" : "0.0.0.0/0",
+                "GatewayId"            : { "Ref" : "VPCInternetGateway" }
+            }
+        },
+        "PrivateRoute"              : {
+            "Type"       : "AWS::EC2::Route",
+            "Properties" : {
+                "RouteTableId"         : { "Ref" : "PrivateRouteTable" },
+                "DestinationCidrBlock" : "0.0.0.0/0",
+                "NatGatewayId"         : { "Ref" : "VPCNatGW" }
+            }
+        },
+
+        "SGPublicAccess"            : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription" : "Public access to the servcies via HTTP(S)",
+                "VpcId"            : { "Ref" : "BuildServicesVPC" },
+                "Tags"  : [
+                    {
+                        "Key" : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-public-sg" ] ] }
+                    }
+                ],
+                "SecurityGroupIngress" : [
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort"   : "80",
+                        "ToPort"     : "80",
+                        "CidrIp"     : { "Ref" : "ParPublicAccessCIDR" }
+                    },
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort"   : "443",
+                        "ToPort"     : "443",
+                        "CidrIp"     : { "Ref" : "ParPublicAccessCIDR" }
+                    }
+                ]
+            }
+        },
+        "SGRestrictedAccess"        : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription" : "Restricted access to the VPC",
+                "VpcId"            : { "Ref" : "BuildServicesVPC" },
+                "Tags"  : [
+                    {
+                        "Key" : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-restricted-sg" ] ] }
+                    }
+                ],
+                "SecurityGroupIngress" : [
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort"   : "22",
+                        "ToPort"     : "22",
+                        "CidrIp"     : { "Ref" : "ParRestrictedNetworkEgress" }
+                    },
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort"   : "80",
+                        "ToPort"     : "80",
+                        "CidrIp"     : { "Ref" : "ParRestrictedNetworkEgress" }
+                    },
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort"   : "443",
+                        "ToPort"     : "443",
+                        "CidrIp"     : { "Ref" : "ParRestrictedNetworkEgress" }
+                    }
+                ]
+            }
+        },
+        "SGInternalAccess"          : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription" : "Internal access between services.",
+                "VpcId"            : { "Ref" : "BuildServicesVPC" },
+                "Tags"  : [
+                    {
+                        "Key" : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-internal-sg" ] ] }
+                    }
+                ],
+                "SecurityGroupIngress" : [
+                    {
+                        "IpProtocol" : "-1",
+                        "FromPort"   : "0",
+                        "ToPort"     : "65535",
+                        "SourceSecurityGroupId" : { "Ref" : "SGRestrictedAccess" }
+                    },
+                    {
+                        "IpProtocol" : "-1",
+                        "FromPort"   : "0",
+                        "ToPort"     : "65535",
+                        "CidrIp"     : { "Ref" : "ParVPCCIDR" }
+                    }
+                ]
+            }
+        },
+        "SGMySQLIntAccess"          : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription" : "Internal DB access",
+                "VpcId"            : { "Ref" : "BuildServicesVPC" },
+                "Tags"  : [
+                    {
+                        "Key" : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-mysql-private-sg" ] ] }
+                    }
+                ],
+                "SecurityGroupIngress" : [
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort"   : "3306",
+                        "ToPort"     : "3306",
+                        "SourceSecurityGroupId" : { "Ref" : "SGInternalAccess" }
+                    },
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort"   : "3306",
+                        "ToPort"     : "3306",
+                        "SourceSecurityGroupId" : { "Ref" : "SGRestrictedAccess" }
+                    }
+                ]
+            }
+        },
+        "SGExternalAccess"          : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription" : "External Access to services",
+                "VpcId"            : { "Ref" : "BuildServicesVPC" },
+                "Tags"  : [
+                    {
+                        "Key" : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-external-sg" ] ] }
+                    }
+                ]
+            }
+        },
+        "SGCrossVPCAccess"          : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription" : "Cross VPC access to the services",
+                "VpcId"            : { "Ref" : "BuildServicesVPC" },
+                "Tags"  : [
+                    {
+                        "Key" : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-cross-sg" ] ] }
+                    }
+                ]
+            }
+        },
+
+        "ElbJenkins"                : {
+            "Type"       : "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Metadata"   : {
+                "Tier"       : "Web",
+                "Visibility" : "External"
+            },
+            "Properties" : {
+                "Scheme" : "internet-facing",
+                "SecurityGroups"      : [
+                    { "Ref" : "SGRestrictedAccess" },
+                    { "Ref" : "SGExternalAccess" }
+                ],
+                "Subnets"             : [
+                    { "Ref" : "SnBuildServicesPublic" }
+                ],
+                "Instances"      : [
+                    { "Ref" : "JenkinsMasterInst" }
+                ],
+                "Listeners"           : [
+                    {
+                        "LoadBalancerPort" : "80",
+                        "InstancePort"     : "8080",
+                        "Protocol"         : "TCP"
+                    }
+                ],
+                "HealthCheck"         : {
+                    "HealthyThreshold"   : "2",
+                    "Interval"           : "30",
+                    "Target"             : "TCP:8080",
+                    "Timeout"            : "20",
+                    "UnhealthyThreshold" : "10"
+                },
+                "AccessLoggingPolicy" : {
+                    "EmitInterval"      : "5",
+                    "Enabled"           : "true",
+                    "S3BucketName"      : { "Ref" : "ParALBLogBucket" },
+                    "S3BucketPrefix"    : "admin-elb"
+                },
+                "CrossZone"           : "true",
+                "Tags"                : [
+                    {
+                        "Key"   : "Name",
+                        "Value" : "admin-elb-jenkins-ext"
+                    }
+                ]
+            }
+        },
+        "ElbNexusExt"               : {
+            "Type"       : "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Metadata"   : {
+                "Tier"       : "Web",
+                "Visibility" : "External"
+            },
+            "Properties" : {
+                "Scheme" : "internet-facing",
+                "SecurityGroups"      : [
+                    { "Ref" : "SGRestrictedAccess" },
+                    { "Ref" : "SGCrossVPCAccess" },
+                    { "Ref" : "SGExternalAccess" }
+                ],
+                "Subnets"             : [
+                    { "Ref" : "SnBuildServicesPublic" }
+                ],
+                "Instances"      : [
+                    { "Ref" : "NexusInst" }
+                ],
+                "Listeners"           : [
+                    {
+                        "LoadBalancerPort" : "443",
+                        "InstancePort"     : "8082",
+                        "Protocol"         : "TCP"
+                    }
+                ],
+                "HealthCheck"         : {
+                    "HealthyThreshold"   : "2",
+                    "Interval"           : "30",
+                    "Target"             : "TCP:8082",
+                    "Timeout"            : "20",
+                    "UnhealthyThreshold" : "10"
+                },
+                "AccessLoggingPolicy" : {
+                    "EmitInterval"      : "5",
+                    "Enabled"           : "true",
+                    "S3BucketName"      : { "Ref" : "ParALBLogBucket" },
+                    "S3BucketPrefix"    : "admin-elb"
+                },
+                "CrossZone"           : "true",
+                "Tags"                : [
+                    {
+                        "Key"   : "Name",
+                        "Value" : "admin-elb-nexus-ext"
+                    }
+                ]
+            }
+        },
+        "ElbNexusInt"               : {
+            "Type"       : "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Properties" : {
+                "Scheme" : "internal",
+                "SecurityGroups"      : [
+                    { "Ref" : "SGInternalAccess" },
+                    { "Ref" : "SGToolboxInternal" }
+                ],
+                "Subnets"             : [
+                    { "Ref" : "SnBuildServicesPrivate" }
+                ],
+                "Instances"      : [
+                    { "Ref" : "NexusInst" }
+                ],
+                "Listeners"           : [
+                    {
+                        "LoadBalancerPort" : "443",
+                        "InstancePort"     : "8082",
+                        "Protocol"         : "TCP"
+                    }
+                ],
+                "HealthCheck"         : {
+                    "HealthyThreshold"   : "2",
+                    "Interval"           : "30",
+                    "Target"             : "TCP:8082",
+                    "Timeout"            : "20",
+                    "UnhealthyThreshold" : "10"
+                },
+                "AccessLoggingPolicy" : {
+                    "EmitInterval"      : "5",
+                    "Enabled"           : "true",
+                    "S3BucketName"      : { "Ref" : "ParELBLogBucket" },
+                    "S3BucketPrefix"    : "admin-elb"
+                },
+                "CrossZone"           : "true",
+                "Tags"                : [
+                    {
+                        "Key"   : "Name",
+                        "Value" : "admin-elb-nexus-int"
+                    }
+                ]
+            }
+        },
+        "ElbConfigServiceInt"       : {
+            "Type"       : "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Metadata"   : {
+                "Tier"       : "Web",
+                "Visibility" : "External"
+            },
+            "Properties" : {
+                "Scheme" : "internet-facing",
+                "SecurityGroups"      : [
+                    { "Ref" : "SGRestrictedAccess" },
+                    { "Ref" : "SGCrossVPCAccess" }
+                ],
+                "Subnets"             : [
+                    { "Ref" : "SnBuildServicesPublic" }
+                ],
+                "Instances"      : [
+                    { "Ref" : "ConfigServiceInst" }
+                ],
+                "Listeners"           : [
+                    {
+                        "LoadBalancerPort" : "443",
+                        "InstancePort"     : "4001",
+                        "Protocol"         : "TCP"
+                    }
+                ],
+                "HealthCheck"         : {
+                    "HealthyThreshold"   : "2",
+                    "Interval"           : "30",
+                    "Target"             : "TCP:4001",
+                    "Timeout"            : "20",
+                    "UnhealthyThreshold" : "10"
+                },
+                "AccessLoggingPolicy" : {
+                    "EmitInterval"      : "5",
+                    "Enabled"           : "true",
+                    "S3BucketName"      : { "Ref" : "ParELBLogBucket" },
+                    "S3BucketPrefix"    : "admin-elb"
+                },
+                "CrossZone"           : "true",
+                "Tags"                : [
+                    {
+                        "Key"   : "Name",
+                        "Value" : "admin-elb-config-ext"
+                    }
+                ]
+            }
+        },
+
+        "VPCBastionInstance"        : {
+            "Type" : "AWS::EC2::Instance",
+            "Metadata" : {
+                "AWS::CloudFormation::Init" : {
+                    "config" : {
+                        "/tmp/instance_bootstrap.sh" : {
+                            "source" : {
+                                "Fn::Join" : ["/", [
+                                    { "Ref" : "ParS3BoostrapBucket" },
+                                    { "Ref" : "ParEnvironmentGroup" },
+                                    "bootstrap_bastion.sh" ] ]
+                            },
+                            "context" : {
+                                "stack" : { "Ref" : "AWS::StackName" },
+                                "region" : { "Ref" : "AWS::Region" },
+                                "logicalId" : "VPCBastionInstance"
+                            },
+                            "mode" : "0755"
+                        }
+                    }
+                }
+            },
+            "Properties" : {
+                "InstanceType" : { "Ref" : "ParBastionInstanceType" },
+                "KeyName"      : { "Ref" : "ParBastionSSHAccessKey" },
+                "Tags"               : [
+                    {
+                        "Key" : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-bastion-inst" ] ] }
+                    }
+                ],
+                "SubnetId"           : { "Ref" : "SnBuildServicesPublic" },
+                "SourceDestCheck"    : "false",
+                "ImageId"            : { "Ref" : "ParAMIBastionInstance" },
+                "SecurityGroupIds"   : [
+                    { "Ref" : "SGRestrictedAccess" },
+                    { "Ref" : "SGExternalAccess" }
+                ]
+            }
+        },
+        "JenkinsMasterInst"         : {
+            "Type" : "AWS::EC2::Instance",
+            "Metadata" : {
+                "Tier" : "APP",
+                "Visibility" : "Internal",
+                "AWS::CloudFormation::Init" : {
+                    "config" : {
+                        "/tmp/instance_bootstrap.sh" : {
+                            "source" : {
+                                "Fn::Join" : ["/", [
+                                    { "Ref" : "ParS3BoostrapBucket" },
+                                    { "Ref" : "ParEnvironmentGroup" },
+                                    "bootstrap_jenkins_master.sh" ] ]
+                            },
+                            "context" : {
+                                "stack" : { "Ref" : "AWS::StackName" },
+                                "region" : { "Ref" : "AWS::Region" },
+                                "logicalId" : "JenkinsMasterInst"
+                            },
+                            "mode" : "0755"
+                        }
+                    }
+                }
+            },
+            "Properties" : {
+                "InstanceType" : { "Ref" : "ParJenkinsInstanceType" },
+                "KeyName"      : { "Ref" : "ParAnsibleSSHAccessKey" },
+                "Tags"               : [
+                    {
+                        "Key" : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-jenkins-master-inst" ] ] }
+                    }
+                ],
+                "SubnetId"           : { "Ref" : "SnBuildServicesPrivate" },
+                "ImageId"            : { "Ref" : "ParAMIToolbox" },
+                "SecurityGroupIds"   : [
+                    { "Ref" : "SGInternalAccess" }
+                ]
+            }
+        },
+        "NexusServerInst"           : {
+            "Type" : "AWS::EC2::Instance",
+            "Metadata" : {
+                "Tier" : "APP",
+                "Visibility" : "Internal",
+                "AWS::CloudFormation::Init" : {
+                    "config" : {
+                        "/tmp/instance_bootstrap.sh" : {
+                            "source" : {
+                                "Fn::Join" : ["/", [
+                                    { "Ref" : "ParS3BoostrapBucket" },
+                                    { "Ref" : "ParEnvironmentGroup" },
+                                    "bootstrap_nexus.sh" ] ]
+                            },
+                            "context" : {
+                                "stack" : { "Ref" : "AWS::StackName" },
+                                "region" : { "Ref" : "AWS::Region" },
+                                "logicalId" : "NexusServerInst"
+                            },
+                            "mode" : "0755"
+                        }
+                    }
+                }
+            },
+            "Properties" : {
+                "InstanceType" : { "Ref" : "ParNexusInstanceType" },
+                "KeyName"      : { "Ref" : "ParAnsibleSSHAccessKey" },
+                "Tags"               : [
+                    {
+                        "Key" : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-nexus-inst" ] ] }
+                    }
+                ],
+                "SubnetId"           : { "Ref" : "SnBuildServicesPrivate" },
+                "ImageId"            : { "Ref" : "ParAMIToolbox" },
+                "SecurityGroupIds"   : [
+                    { "Ref" : "SGInternalAccess" },
+                    { "Ref" : "SGPublicAccess" },
+                    { "Ref" : "SGExternalAccess" }
+                ]
+            }
+        },
+        "ConfigServiceInst"         : {
+            "Type" : "AWS::EC2::Instance",
+            "Metadata" : {
+                "Tier" : "APP",
+                "Visibility" : "Internal",
+                "AWS::CloudFormation::Init" : {
+                    "config" : {
+                        "/tmp/instance_bootstrap.sh" : {
+                            "source" : {
+                                "Fn::Join" : ["/", [
+                                    { "Ref" : "ParS3BoostrapBucket" },
+                                    { "Ref" : "ParEnvironmentGroup" },
+                                    "bootstrap_config_service.sh" ] ]
+                            },
+                            "context" : {
+                                "stack" : { "Ref" : "AWS::StackName" },
+                                "region" : { "Ref" : "AWS::Region" },
+                                "logicalId" : "ConfigServiceInst"
+                            },
+                            "mode" : "0755"
+                        }
+                    }
+                }
+            },
+            "Properties" : {
+                "InstanceType" : { "Ref" : "ParConfigServerInstanceType" },
+                "KeyName"      : { "Ref" : "ParAnsibleSSHAccessKey" },
+                "Tags"               : [
+                    {
+                        "Key" : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-configsrv-inst" ] ] }
+                    }
+                ],
+                "SubnetId"           : { "Ref" : "SnBuildServicesPrivate" },
+                "ImageId"            : { "Ref" : "ParAMIToolbox" },
+                "SecurityGroupIds"   : [
+                    { "Ref" : "SGInternalAccess" }
+                ]
+            }
+        },
+
+        "RDSSubnetGroup"            : {
+            "Type" : "AWS::RDS::DBSubnetGroup",
+            "Properties" : {
+                "DBSubnetGroupDescription" : "Subnets available for the RDS DB Instance",
+                "SubnetIds"                : [
+                    { "Ref" : "SnRDSPrivate1" },
+                    { "Ref" : "SnRDSPrivate2" }
+                ]
+            }
+        },
+        "RDSMySQLInst"              : {
+            "Type" : "AWS::RDS::DBInstance",
+            "Properties" : {
+                "Tags"   : [
+                    {
+                        "Key" : "Name",
+                        "Value" : "admin-rds-mysql-inst"
+                    }
+                ],
+                "AllocatedStorage" : "10",
+                "DBInstanceClass"  : { "Ref" : "ParMySQLRDSInstanceType" },
+                "Engine"           : "MySQL",
+                "EngineVersion"    : "5.6",
+                "MultiAZ"          : "false",
+                "MasterUsername"   : "mysqladmin",
+                "MasterUserPassword" : { "Ref" : "ParMySQLAdminPassword" },
+                "DBSubnetGroupName"  : { "Ref" : "RDSSubnetGroup" },
+                "VPCSecurityGroups"  : [
+                    { "Ref" : "SGMySQLIntAccess" }
+                ]
+            }
+        },
+
+        "VPCBastionNATEIPAssoc"     : {
+            "Type": "AWS::EC2::EIPAssociation",
+            "Properties": {
+                "EIP"        : { "Ref" : "EIPBastion" },
+                "InstanceId" : { "Ref" : "VPCBastionInstance" }
+            },
+            "DependsOn" : "VPCBastionInstance"
+        },
+    },
+    "Outputs" : {
+        "BastionIP"                  : {
+            "Description" : "IPAddress of Bastion host",
+            "Value"       : { "Ref" : "EIPBastion" }
+        },
+        "EIPNatGW" : {
+            "Description" : "IPAddress of NAT-GW",
+            "Value"       : { "Ref" : "EIPNatGW" }
+        },
+        "URLJenkins"                : {
+            "Description" : "URL of the Jenkins LB",
+            "Value"       : {
+                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbJenkins", "DNSName"]}]]
+            }
+        },
+        "URLNagios"                 : {
+            "Description" : "URL of the Nagios LB",
+            "Value"       : {
+                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbNagios", "DNSName"]}]]
+            }
+        },
+        "URLAnsible"                : {
+            "Description" : "URL of the Ansible LB",
+            "Value"       : {
+                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbAnsible", "DNSName"]}]]
+            }
+        },
+        "URLNexusExt"                  : {
+            "Description" : "URL of the Nexus LB External",
+            "Value"       : {
+                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbNexusExt", "DNSName"]}]]
+            }
+        },
+        "URLNexusInt"                  : {
+            "Description" : "URL of the Nexus LB Internal",
+            "Value"       : {
+                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbNexusInt", "DNSName"]}]]
+            }
+        },
+        "URLSonarExt"                  : {
+            "Description" : "URL of the external Sonar LB",
+            "Value"       : {
+                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbSonarqubeExt", "DNSName"]}]]
+            }
+        },
+        "URLSonarInt"                  : {
+            "Description" : "URL of the external Sonar LB",
+            "Value"       : {
+                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbSonarqubeInt", "DNSName"]}]]
+            }
+        },
+        "URLConfig"                 : {
+            "Description" : "URL of the etcd LB",
+            "Value"       : {
+                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbConfigServiceInt", "DNSName"]}]]
+            }
+        },
+        "RDSMySQLHost"              : {
+            "Description" : "URL of the Jenkins Load Balancer",
+            "Value"       : { "Fn::GetAtt" : ["RDSMySQLInst", "Endpoint.Address"] }
+        },
+        "MySQLConnectionString"     : {
+            "Description" : "JDBC connection string for database",
+            "Value"       : {
+                "Fn::Join" : [
+                    "",
+                    [
+                        "jdbc:mysql://",
+                        { "Fn::GetAtt" : ["RDSMySQLInst", "Endpoint.Address"] },
+                        ":",
+                        { "Fn::GetAtt" : ["RDSMySQLInst", "Endpoint.Port"]},
+                        "/<db-name>"
+                    ]
+                ]
+            }
+        },
+        "SGToolboxInternalId"       : {
+            "Description" : "Name of the SG to be used with Jenkins EC2 plugin",
+            "Value"       : { "Fn::GetAtt" : ["SGToolboxInternal", "GroupId"] }
+        }
+    }
+}

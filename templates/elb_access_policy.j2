@@ -8,7 +8,12 @@
         "s3:PutObject"
       ],
       "Effect": "Allow",
-      "Resource": "arn:aws:s3:::{{ elb_log_bucket }}/AWSLogs/{{ par_aws_acc_id }}/*",
+      "Resource": [
+        "arn:aws:s3:::{{ elb_log_bucket }}/elb-jenkins-external/AWSLogs/{{ par_aws_acc_id }}/*",
+        "arn:aws:s3:::{{ elb_log_bucket }}/elb-nexus-external/AWSLogs/{{ par_aws_acc_id }}/*",
+        "arn:aws:s3:::{{ elb_log_bucket }}/elb-nexus-internal/AWSLogs/{{ par_aws_acc_id }}/*",
+        "arn:aws:s3:::{{ elb_log_bucket }}/elb-configs-external/AWSLogs/{{ par_aws_acc_id }}/*"
+      ],
       "Principal": {
         "AWS": [
           "156460612806"

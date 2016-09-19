@@ -471,7 +471,7 @@
                     "EmitInterval"      : "5",
                     "Enabled"           : "true",
                     "S3BucketName"      : { "Ref" : "ParELBLogBucket" },
-                    "S3BucketPrefix"    : "admin-elb"
+                    "S3BucketPrefix"    : "elb-jenkins-external"
                 },
                 "CrossZone"           : "true",
                 "Tags"                : [
@@ -519,7 +519,7 @@
                     "EmitInterval"      : "5",
                     "Enabled"           : "true",
                     "S3BucketName"      : { "Ref" : "ParELBLogBucket" },
-                    "S3BucketPrefix"    : "admin-elb"
+                    "S3BucketPrefix"    : "elb-nexus-external"
                 },
                 "CrossZone"           : "true",
                 "Tags"                : [
@@ -562,7 +562,7 @@
                     "EmitInterval"      : "5",
                     "Enabled"           : "true",
                     "S3BucketName"      : { "Ref" : "ParELBLogBucket" },
-                    "S3BucketPrefix"    : "admin-elb"
+                    "S3BucketPrefix"    : "elb-nexus-internal"
                 },
                 "CrossZone"           : "true",
                 "Tags"                : [
@@ -611,7 +611,7 @@
                     "EmitInterval"      : "5",
                     "Enabled"           : "true",
                     "S3BucketName"      : { "Ref" : "ParELBLogBucket" },
-                    "S3BucketPrefix"    : "admin-elb"
+                    "S3BucketPrefix"    : "elb-configs-external"
                 },
                 "CrossZone"           : "true",
                 "Tags"                : [

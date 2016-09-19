@@ -1,0 +1,110 @@
+##############################################################
+# Please specify AWS auth info on the command line for Boto:
+#
+# export AWS_ACCESS_KEY_ID=
+# export AWS_SECRET_ACCESS_KEY=
+# export AWS_DEFAULT_REGION=
+#
+# Execute with:
+#   ansible-playbook ansible-provision.yml -e "@aws-params.json" -e "stack_name=bs-01" -e "env_group=dev"
+# where
+#   '@aws-params.json' is pointing to the parameter file. The idea is to store those parameters here what are not meant to be chaning between runs.
+#   'stack_name' is the value for the 'aws::cloudformation::stack_name' tag
+#   'env_group' is the value for the various possible environment groups [dev, prod for example]
+#
+# Expect long running time as the stack takes about 20-25 minutes to complete
+##############################################################
+---
+- hosts: localhost
+  connection: local
+  gather_facts: true
+
+  vars:
+    out_dir: "out-{{ stack_name }}-{{ env_group }}"
+    elb_log_bucket: "{{ stack_name }}-{{ env_group }}-elb-logs-{{ par_aws_acc_id }}"
+    bootstrap_bucket: "{{ stack_name }}-{{ env_group }}-boostrap-{{ par_aws_acc_id }}"
+    elb_access_policy_uuid: "{{ ansible_date_time.iso8601_micro | to_uuid }}"
+
+  tasks:
+    # Local stuff first
+    - name: Create the output directory
+      file: path={{ out_dir }} state=directory mode=0755
+      tags: create
+
+    - name: Create the S3 policy based on the template
+      template:
+        src: "templates/elb_access_policy.j2"
+        dest: "{{ out_dir }}/elb_access_policy.json"
+        force: "no"
+      tags: create
+
+    # The remote stuff
+    #
+    # Normally this is left untouched once created but because of the issue below it gets re-created every time
+    # Should work proper when upgrading to Ansible 2.2
+    - name: Create ELB log bucket
+      s3_bucket:
+        name: "{{ elb_log_bucket }}"
+        #policy: "{{ lookup('file','{{ out_dir }}/elb_access_policy.json') }}"
+        region: "{{ par_aws_region }}"
+        state: present
+      tags: create
+
+    # See: https://github.com/ansible/ansible-modules-extras/issues/1813
+    - name: Attach the policy.
+      command: aws s3api put-bucket-policy --bucket {{ elb_log_bucket }} --policy file://{{ out_dir }}/elb_access_policy.json
+      tags: create
+
+    - name: Create boostrap bucket
+      s3_bucket:
+        name: "{{ bootstrap_bucket }}"
+        region: "{{ par_aws_region }}"
+        state: present
+      tags: create
+
+    - name: Upload bootstrap files into S3
+      s3:
+        bucket: "{{ bootstrap_bucket }}"
+        mode: put
+        object: "{{ item }}"
+        src: "bootstrap/{{ item }}"
+        overwrite: "different"
+      with_items:
+        - "bootstrap_bastion.sh"
+        - "bootstrap_config_service.sh"
+        - "bootstrap_jenkins_master.sh"
+        - "bootstrap_nexus.sh"
+      tags: upload
+
+    - name: Upload template(s) into S3
+      s3:
+        bucket: "{{ par_s3_template_bucket }}"
+        mode: put
+        object: "{{ item }}"
+        src: "cft/{{ item }}"
+        overwrite: "different"
+      with_items:
+        - "build-services-vpc.template"
+      tags: upload
+
+    - name: Create the Build Services VPC from scratch
+      cloudformation:
+        stack_name: "{{ stack_name }}-{{ env_group }}"
+        state: "present"
+        region: "{{ par_aws_region }}"
+        disable_rollback: false
+        template_url: "https://s3-{{ par_aws_region }}.amazonaws.com/{{ par_s3_template_bucket }}/build-services-vpc.template"
+        template_parameters:
+          ParDNSHostedZoneId: "{{ par_hosted_zone_id }}"
+          ParEnvironmentGroup: "{{ env_group }}"
+          ParRestrictedNetworkEgress: "{{ par_restricted_egress_ip }}"
+          ParAnsibleSSHAccessKey: "{{ par_ansible_ssh_key }}"
+          ParBastionSSHAccessKey: "{{ par_bastion_ssh_key }}"
+          ParELBLogBucket: "{{ elb_log_bucket }}"
+          ParS3BootstrapBucket: "{{ bootstrap_bucket }}"
+          ParMySQLAdminPassword: "{{ lookup('password', './{{ out_dir }}/mysqlpassword.pwd length=15') }}"
+          ZDidYouCheckAllValues: "Yes"
+        tags:
+          created_by: "{{ lookup('env', 'USER') }}"
+          created_on: "{{ lookup('pipe', 'date \"+%Y-%m-%d %H:%M:%S\"') }}"
+      tags: create-vpc

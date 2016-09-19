@@ -1,5 +1,9 @@
 {
-    "par_vpc_id" : "vpc-0d322e64",
-    "par_subnet_id" : "subnet-15a2456f",
-    "par_secgrp_id" : "sg-5d42de35"
+    "par_aws_region" : "eu-west-1",
+    "par_aws_acc_id" : "458456854221",
+    "par_hosted_zone_id" : "Z30GA6C6NGZ6AD",
+    "par_restricted_egress_ip" : "5.69.201.152/32",
+    "par_ansible_ssh_key" : "ansible-ssh-key_zsoltk",
+    "par_bastion_ssh_key" : "bastion-ssh-key_zsoltk",
+    "par_s3_template_bucket" : "cf-templates-16nj7w48ethfg-eu-west-1"
 }

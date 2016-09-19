@@ -1,0 +1,19 @@
+{
+  "Id": "{{ elb_access_policy_uuid }}",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ELB_ACCESS_POLICY",
+      "Action": [
+        "s3:PutObject"
+      ],
+      "Effect": "Allow",
+      "Resource": "arn:aws:s3:::{{ elb_log_bucket }}/AWSLogs/{{ par_aws_acc_id }}/*",
+      "Principal": {
+        "AWS": [
+          "156460612806"
+        ]
+      }
+    }
+  ]
+}

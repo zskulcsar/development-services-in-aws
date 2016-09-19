@@ -29,12 +29,12 @@
             "Type"        : "AWS::EC2::Image::Id",
             "Default"     : "ami-e1398992"
         },
-        "ParAMIBastionInstance"      : {
+        "ParAMIBastionInstance"         : {
             "Description" : "AMI-ID of the NAT image Amazon Linux AMI in Ireland as of 16-09-2016",
             "Type"        : "AWS::EC2::Image::Id",
             "Default"     : "ami-6975eb1e"
         },
-        "ParBastionInstanceType"     : {
+        "ParBastionInstanceType"        : {
             "Description" : "The instance type to be used by the NAT / Bastion.",
             "Type"        : "String",
             "Default"     : "t2.micro"
@@ -59,11 +59,11 @@
             "Type"        : "String",
             "Default"     : "db.t2.small"
         },
-        "ParALBLogBucket"               : {
+        "ParELBLogBucket"               : {
             "Description" : "The name of the bucket where the ALB logs will be stored. See configuration here http://docs.aws.amazon.com/elasticloadbalancing/latest/classic/enable-access-logs.html",
             "Type"        : "String"
         },
-        "ParS3BoostrapBucket"               : {
+        "ParS3BootstrapBucket"          : {
             "Description" : "The name of the bucket where the instance boostrap can be found. Needs to be created first.",
             "Type"        : "String"
         },
@@ -438,15 +438,12 @@
             }
         },
 
-        "ElbJenkins"                : {
+        "ElbJenkinsExt"             : {
             "Type"       : "AWS::ElasticLoadBalancing::LoadBalancer",
-            "Metadata"   : {
-                "Tier"       : "Web",
-                "Visibility" : "External"
-            },
             "Properties" : {
                 "Scheme" : "internet-facing",
                 "SecurityGroups"      : [
+                    { "Ref" : "SGPublicAccess" },
                     { "Ref" : "SGRestrictedAccess" },
                     { "Ref" : "SGExternalAccess" }
                 ],
@@ -473,14 +470,14 @@
                 "AccessLoggingPolicy" : {
                     "EmitInterval"      : "5",
                     "Enabled"           : "true",
-                    "S3BucketName"      : { "Ref" : "ParALBLogBucket" },
+                    "S3BucketName"      : { "Ref" : "ParELBLogBucket" },
                     "S3BucketPrefix"    : "admin-elb"
                 },
                 "CrossZone"           : "true",
                 "Tags"                : [
                     {
                         "Key"   : "Name",
-                        "Value" : "admin-elb-jenkins-ext"
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-elb-jenkins-ext" ] ] }
                     }
                 ]
             }
@@ -494,58 +491,15 @@
             "Properties" : {
                 "Scheme" : "internet-facing",
                 "SecurityGroups"      : [
+                    { "Ref" : "SGPublicAccess" },
                     { "Ref" : "SGRestrictedAccess" },
-                    { "Ref" : "SGCrossVPCAccess" },
                     { "Ref" : "SGExternalAccess" }
                 ],
                 "Subnets"             : [
                     { "Ref" : "SnBuildServicesPublic" }
                 ],
                 "Instances"      : [
-                    { "Ref" : "NexusInst" }
-                ],
-                "Listeners"           : [
-                    {
-                        "LoadBalancerPort" : "443",
-                        "InstancePort"     : "8082",
-                        "Protocol"         : "TCP"
-                    }
-                ],
-                "HealthCheck"         : {
-                    "HealthyThreshold"   : "2",
-                    "Interval"           : "30",
-                    "Target"             : "TCP:8082",
-                    "Timeout"            : "20",
-                    "UnhealthyThreshold" : "10"
-                },
-                "AccessLoggingPolicy" : {
-                    "EmitInterval"      : "5",
-                    "Enabled"           : "true",
-                    "S3BucketName"      : { "Ref" : "ParALBLogBucket" },
-                    "S3BucketPrefix"    : "admin-elb"
-                },
-                "CrossZone"           : "true",
-                "Tags"                : [
-                    {
-                        "Key"   : "Name",
-                        "Value" : "admin-elb-nexus-ext"
-                    }
-                ]
-            }
-        },
-        "ElbNexusInt"               : {
-            "Type"       : "AWS::ElasticLoadBalancing::LoadBalancer",
-            "Properties" : {
-                "Scheme" : "internal",
-                "SecurityGroups"      : [
-                    { "Ref" : "SGInternalAccess" },
-                    { "Ref" : "SGToolboxInternal" }
-                ],
-                "Subnets"             : [
-                    { "Ref" : "SnBuildServicesPrivate" }
-                ],
-                "Instances"      : [
-                    { "Ref" : "NexusInst" }
+                    { "Ref" : "NexusServerInst" }
                 ],
                 "Listeners"           : [
                     {
@@ -571,12 +525,55 @@
                 "Tags"                : [
                     {
                         "Key"   : "Name",
-                        "Value" : "admin-elb-nexus-int"
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-nexus-ext" ] ] }
                     }
                 ]
             }
         },
-        "ElbConfigServiceInt"       : {
+        "ElbNexusInt"               : {
+            "Type"       : "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Properties" : {
+                "Scheme" : "internal",
+                "SecurityGroups"      : [
+                    { "Ref" : "SGInternalAccess" },
+                    { "Ref" : "SGCrossVPCAccess" }
+                ],
+                "Subnets"             : [
+                    { "Ref" : "SnBuildServicesPrivate" }
+                ],
+                "Instances"      : [
+                    { "Ref" : "NexusServerInst" }
+                ],
+                "Listeners"           : [
+                    {
+                        "LoadBalancerPort" : "443",
+                        "InstancePort"     : "8082",
+                        "Protocol"         : "TCP"
+                    }
+                ],
+                "HealthCheck"         : {
+                    "HealthyThreshold"   : "2",
+                    "Interval"           : "30",
+                    "Target"             : "TCP:8082",
+                    "Timeout"            : "20",
+                    "UnhealthyThreshold" : "10"
+                },
+                "AccessLoggingPolicy" : {
+                    "EmitInterval"      : "5",
+                    "Enabled"           : "true",
+                    "S3BucketName"      : { "Ref" : "ParELBLogBucket" },
+                    "S3BucketPrefix"    : "admin-elb"
+                },
+                "CrossZone"           : "true",
+                "Tags"                : [
+                    {
+                        "Key"   : "Name",
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-elb-nexus-int" ] ] }
+                    }
+                ]
+            }
+        },
+        "ElbConfigServiceExt"       : {
             "Type"       : "AWS::ElasticLoadBalancing::LoadBalancer",
             "Metadata"   : {
                 "Tier"       : "Web",
@@ -585,8 +582,10 @@
             "Properties" : {
                 "Scheme" : "internet-facing",
                 "SecurityGroups"      : [
+                    { "Ref" : "SGInternalAccess" },
+                    { "Ref" : "SGCrossVPCAccess" },
                     { "Ref" : "SGRestrictedAccess" },
-                    { "Ref" : "SGCrossVPCAccess" }
+                    { "Ref" : "SGExternalAccess" }
                 ],
                 "Subnets"             : [
                     { "Ref" : "SnBuildServicesPublic" }
@@ -618,7 +617,7 @@
                 "Tags"                : [
                     {
                         "Key"   : "Name",
-                        "Value" : "admin-elb-config-ext"
+                        "Value" : { "Fn::Join" : ["_", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-config-ext" ] ] }
                     }
                 ]
             }
@@ -632,7 +631,7 @@
                         "/tmp/instance_bootstrap.sh" : {
                             "source" : {
                                 "Fn::Join" : ["/", [
-                                    { "Ref" : "ParS3BoostrapBucket" },
+                                    { "Ref" : "ParS3BootstrapBucket" },
                                     { "Ref" : "ParEnvironmentGroup" },
                                     "bootstrap_bastion.sh" ] ]
                             },
@@ -674,7 +673,7 @@
                         "/tmp/instance_bootstrap.sh" : {
                             "source" : {
                                 "Fn::Join" : ["/", [
-                                    { "Ref" : "ParS3BoostrapBucket" },
+                                    { "Ref" : "ParS3BootstrapBucket" },
                                     { "Ref" : "ParEnvironmentGroup" },
                                     "bootstrap_jenkins_master.sh" ] ]
                             },
@@ -714,7 +713,7 @@
                         "/tmp/instance_bootstrap.sh" : {
                             "source" : {
                                 "Fn::Join" : ["/", [
-                                    { "Ref" : "ParS3BoostrapBucket" },
+                                    { "Ref" : "ParS3BootstrapBucket" },
                                     { "Ref" : "ParEnvironmentGroup" },
                                     "bootstrap_nexus.sh" ] ]
                             },
@@ -756,7 +755,7 @@
                         "/tmp/instance_bootstrap.sh" : {
                             "source" : {
                                 "Fn::Join" : ["/", [
-                                    { "Ref" : "ParS3BoostrapBucket" },
+                                    { "Ref" : "ParS3BootstrapBucket" },
                                     { "Ref" : "ParEnvironmentGroup" },
                                     "bootstrap_config_service.sh" ] ]
                             },
@@ -830,67 +829,43 @@
         }
     },
     "Outputs" : {
-        "BastionIP"                  : {
+        "BastionIP"             : {
             "Description" : "IPAddress of Bastion host",
             "Value"       : { "Ref" : "EIPBastion" }
         },
-        "EIPNatGW" : {
+        "EIPNatGW"              : {
             "Description" : "IPAddress of NAT-GW",
             "Value"       : { "Ref" : "EIPNatGW" }
         },
-        "URLJenkins"                : {
+        "URLJenkins"            : {
             "Description" : "URL of the Jenkins LB",
             "Value"       : {
-                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbJenkins", "DNSName"]}]]
+                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbJenkinsExt", "DNSName"]}]]
             }
         },
-        "URLNagios"                 : {
-            "Description" : "URL of the Nagios LB",
-            "Value"       : {
-                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbNagios", "DNSName"]}]]
-            }
-        },
-        "URLAnsible"                : {
-            "Description" : "URL of the Ansible LB",
-            "Value"       : {
-                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbAnsible", "DNSName"]}]]
-            }
-        },
-        "URLNexusExt"                  : {
+        "URLNexusExt"           : {
             "Description" : "URL of the Nexus LB External",
             "Value"       : {
                 "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbNexusExt", "DNSName"]}]]
             }
         },
-        "URLNexusInt"                  : {
+        "URLNexusInt"           : {
             "Description" : "URL of the Nexus LB Internal",
             "Value"       : {
                 "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbNexusInt", "DNSName"]}]]
             }
         },
-        "URLSonarExt"                  : {
-            "Description" : "URL of the external Sonar LB",
-            "Value"       : {
-                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbSonarqubeExt", "DNSName"]}]]
-            }
-        },
-        "URLSonarInt"                  : {
-            "Description" : "URL of the external Sonar LB",
-            "Value"       : {
-                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbSonarqubeInt", "DNSName"]}]]
-            }
-        },
-        "URLConfig"                 : {
+        "URLConfigService"      : {
             "Description" : "URL of the etcd LB",
             "Value"       : {
-                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbConfigServiceInt", "DNSName"]}]]
+                "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : ["ElbConfigServiceExt", "DNSName"]}]]
             }
         },
-        "RDSMySQLHost"              : {
+        "RDSMySQLHost"          : {
             "Description" : "URL of the Jenkins Load Balancer",
             "Value"       : { "Fn::GetAtt" : ["RDSMySQLInst", "Endpoint.Address"] }
         },
-        "MySQLConnectionString"     : {
+        "MySQLConnectionString" : {
             "Description" : "JDBC connection string for database",
             "Value"       : {
                 "Fn::Join" : [
@@ -905,9 +880,9 @@
                 ]
             }
         },
-        "SGToolboxInternalId"       : {
+        "SGToolboxInternalId"   : {
             "Description" : "Name of the SG to be used with Jenkins EC2 plugin",
-            "Value"       : { "Fn::GetAtt" : ["SGToolboxInternal", "GroupId"] }
+            "Value"       : { "Fn::GetAtt" : ["SGInternalAccess", "GroupId"] }
         }
     }
 }

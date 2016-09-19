@@ -1,1 +1,3 @@
 //TODO: update the cft to create dns entries for the bastion host.
+//TODO: update the cft to create dns entries for the services [both internal & external]
+//TODO: update cft to use large disc for nexus

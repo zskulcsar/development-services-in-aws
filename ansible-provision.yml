@@ -5,14 +5,16 @@
 # export AWS_SECRET_ACCESS_KEY=
 # export AWS_DEFAULT_REGION=
 #
-# Execute with:
-#   ansible-playbook ansible-provision.yml -e "@aws-params.json" -e "stack_name=bs-01" -e "env_group=dev"
-# where
-#   '@aws-params.json' is pointing to the parameter file. The idea is to store those parameters here what are not meant to be chaning between runs.
-#   'stack_name' is the value for the 'aws::cloudformation::stack_name' tag
-#   'env_group' is the value for the various possible environment groups [dev, prod for example]
+# export STACK_NAME=
+# export ENV_GROUP=
 #
-# Expect long running time as the stack takes about 20-25 minutes to complete
+# Execute with:
+#   ansible-playbook ansible-provision.yml -e "@aws-params.json" -e "stack_name=$STACK_NAME" -e "env_group=$ENV_GROUP"
+# where
+#   '@aws-params.json' is pointing to the parameter file. The idea is to store those parameters here what are not meant to be changing between runs.
+#   'STACK_NAME' & 'ENV_GROUP' are used for the 'aws::cloudformation::stack_name' tag
+#
+# Expect long running time as the stack takes about 5 - 10 minutes to complete
 ##############################################################
 ---
 - hosts: localhost

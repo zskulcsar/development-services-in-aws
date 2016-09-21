@@ -651,7 +651,7 @@
                 "Tags"               : [
                     {
                         "Key" : "Name",
-                        "Value" : { "Fn::Join" : ["-", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-bastion-inst" ] ] }
+                        "Value" : "bserv-vpc-bastion-inst"
                     }
                 ],
                 "SubnetId"           : { "Ref" : "SnBuildServicesPublic" },
@@ -693,7 +693,7 @@
                 "Tags"               : [
                     {
                         "Key" : "Name",
-                        "Value" : { "Fn::Join" : ["-", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-jenkins-master-inst" ] ] }
+                        "Value" : "bserv-vpc-jenkins-master-inst"
                     }
                 ],
                 "SubnetId"           : { "Ref" : "SnBuildServicesPrivate" },
@@ -733,7 +733,7 @@
                 "Tags"               : [
                     {
                         "Key" : "Name",
-                        "Value" : { "Fn::Join" : ["-", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-nexus-inst" ] ] }
+                        "Value" : "bserv-vpc-nexus-inst"
                     }
                 ],
                 "SubnetId"           : { "Ref" : "SnBuildServicesPrivate" },
@@ -775,7 +775,7 @@
                 "Tags"               : [
                     {
                         "Key" : "Name",
-                        "Value" : { "Fn::Join" : ["-", [ { "Ref" : "ParEnvironmentGroup" }, "bserv-vpc-configsrv-inst" ] ] }
+                        "Value" : "bserv-vpc-configsrv-inst"
                     }
                 ],
                 "SubnetId"           : { "Ref" : "SnBuildServicesPrivate" },

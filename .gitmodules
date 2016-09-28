@@ -1,0 +1,4 @@
+[submodule "roles/zskulcsar.ansible-nexus-oss"]
+	path = roles/zskulcsar.ansible-nexus-oss
+	url = https://github.com/zskulcsar/ansible-nexus-oss.git
+	branch = develop
